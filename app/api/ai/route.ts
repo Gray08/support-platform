@@ -3,42 +3,31 @@ import { NextRequest, NextResponse } from 'next/server';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-
-    if (!apiKey) {
-      return NextResponse.json(
-        { error: 'API 키가 설정되지 않았습니다' },
-        { status: 500 }
-      );
-    }
-
+    
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': apiKey,
+        'x-api-key': process.env.ANTHROPIC_API_KEY || '',
         'anthropic-version': '2023-06-01'
       },
-      body: JSON.stringify({
-        ...body,
-        model: body.model || 'claude-sonnet-4-20250514'
-      })
+      body: JSON.stringify(body)
     });
 
     if (!response.ok) {
       const error = await response.text();
-      console.error('Anthropic API Error:', error);
+      console.error('Anthropic API error:', error);
       return NextResponse.json(
-        { error: `API 호출 실패: ${error}` },
+        { error: 'AI API 호출 실패' },
         { status: response.status }
       );
     }
 
     const data = await response.json();
     return NextResponse.json(data);
-
+    
   } catch (error) {
-    console.error('API Error:', error);
+    console.error('API route error:', error);
     return NextResponse.json(
       { error: '서버 오류가 발생했습니다' },
       { status: 500 }

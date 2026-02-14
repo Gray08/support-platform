@@ -1,0 +1,30 @@
+{
+  "id": "1234512346_1769516518474",
+  "companyName": "삼성전자",
+  "ceoName": "이재용",
+  "businessNumber": "123-45-12346",
+  "establishedYear": "2000",
+  "employeeCount": "20",
+  "address": "서울시 테헤란로",
+  "contactPerson": "",
+  "phone": "02-232-1921",
+  "email": "",
+  "website": "",
+  "industry": "제조업 - 기계/장비",
+  "businessType": "중견기업",
+  "mainProducts": "무인지상차량",
+  "annualSales2022": "50",
+  "annualSales2023": "100",
+  "annualSales2024": "180",
+  "coreTechnologies": "",
+  "patents": "",
+  "certifications": "",
+  "majorClients": "",
+  "previousSupports": "",
+  "specialStatus": [
+    "강소기업",
+    "수출유망중소기업"
+  ],
+  "createdAt": "2026-01-27T12:21:58.474Z",
+  "updatedAt": "2026-01-27T12:21:58.474Z"
+}

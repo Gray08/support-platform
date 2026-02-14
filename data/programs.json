@@ -1,0 +1,55 @@
+{
+  "programs": [
+    {
+      "id": "prog_001",
+      "metadata": {
+        "name": "창업도약패키지",
+        "organization": "중소벤처기업부",
+        "year": "2025"
+      },
+      "documents": {
+        "announcement": {
+          "pdfUrl": "/uploads/prog_001_announcement.pdf",
+          "parsedData": {
+            "지원대상": "...",
+            "지원내용": "...",
+            "신청방법": "..."
+          }
+        },
+        "applicationForm": {
+          "pdfUrl": "/uploads/prog_001_form.pdf",
+          "structure": {
+            "sections": [
+              {
+                "title": "1. 기업 개요",
+                "fields": [
+                  {"name": "기업명", "type": "text", "required": true},
+                  {"name": "대표자", "type": "text", "required": true}
+                ]
+              },
+              {
+                "title": "2. 사업 계획",
+                "fields": [
+                  {"name": "사업목표", "type": "textarea", "wordLimit": 500}
+                ]
+              }
+            ]
+          }
+        },
+        "guidelines": {
+          "pdfUrl": "/uploads/prog_001_guide.pdf",
+          "instructions": [
+            "각 항목은 구체적으로 작성",
+            "정량적 목표 수치 포함",
+            "사업성과 명확히 기술"
+          ]
+        }
+      },
+      "aiLearning": {
+        "successfulExamples": [],
+        "writingPatterns": {},
+        "keyPhrases": []
+      }
+    }
+  ]
+}
