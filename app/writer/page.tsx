@@ -9,45 +9,39 @@ interface ProgramData {
   documents: Record<string, Record<string, unknown>>;
 }
 
-interface ApplicationFormData {
-  // 기업 정보
+interface CompanyProfile {
+  id: string;
   companyName: string;
   ceoName: string;
-  businessNumber: string;
-  address: string;
-  contactPerson: string;
-  phone: string;
-  email: string;
-  
-  // 사업 내용
+  industry: string;
+  businessType: string;
+  mainProducts: string;
+  establishedYear: string;
+  employeeCount: string;
+  coreTechnologies: string;
+  specialStatus: string[];
+}
+
+interface ApplicationFormData {
+  companyId: string;
   projectTitle: string;
   projectSummary: string;
   projectBackground: string;
   projectGoals: string;
   expectedOutcomes: string;
-  
-  // 재무 정보
   averageSales: string;
   supportAmount: string;
   selfFunding: string;
-  
-  // 추가 정보
-  previousSupport: string;
   specialFeatures: string;
 }
 
-// Next.js App Router에서 요구하는 방식으로 export
 export default function WriterPage() {
+  const [companies, setCompanies] = useState<CompanyProfile[]>([]);
+  const [selectedCompany, setSelectedCompany] = useState<string>('');
   const [programs, setPrograms] = useState<ProgramData[]>([]);
   const [selectedProgram, setSelectedProgram] = useState<string>('');
   const [formData, setFormData] = useState<ApplicationFormData>({
-    companyName: '한시스템 주식회사',
-    ceoName: '유한종',
-    businessNumber: '',
-    address: '경상북도 포항시',
-    contactPerson: '장연수',
-    phone: '010-3639-7607',
-    email: '',
+    companyId: '',
     projectTitle: '',
     projectSummary: '',
     projectBackground: '',
@@ -56,19 +50,34 @@ export default function WriterPage() {
     averageSales: '',
     supportAmount: '',
     selfFunding: '',
-    previousSupport: '',
     specialFeatures: ''
   });
-  const [aiSuggestions, setAiSuggestions] = useState<Record<string, string>>({});
   const [isGenerating, setIsGenerating] = useState(false);
+
+  // 등록된 기업 목록 불러오기
+  useEffect(() => {
+    const loadCompanies = async () => {
+      try {
+        const response = await fetch('/api/company/profile');
+        if (response.ok) {
+          const data = await response.json();
+          setCompanies(data.companies || []);
+        }
+      } catch (error) {
+        console.error('기업 목록 로딩 실패:', error);
+      }
+    };
+
+    loadCompanies();
+  }, []);
 
   // 프로그램 목록 불러오기
   useEffect(() => {
-    const loadPrograms = async (): Promise<void> => {
+    const loadPrograms = async () => {
       try {
         const response = await fetch('/api/programs/list');
         if (response.ok) {
-          const data: { programs: ProgramData[] } = await response.json();
+          const data = await response.json();
           setPrograms(data.programs || []);
         }
       } catch (error) {
@@ -79,79 +88,40 @@ export default function WriterPage() {
     loadPrograms();
   }, []);
 
-  // AI 추천 텍스트 생성
-  const generateAISuggestion = async (field: string): Promise<void> => {
-    if (!selectedProgram) {
-      alert('먼저 지원사업을 선택해주세요.');
-      return;
-    }
-
-    setIsGenerating(true);
-    try {
-      const selectedProgramData = programs.find((p: ProgramData) => p.id === selectedProgram);
-      
-      const response = await fetch('/api/programs/generate-text', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          programData: selectedProgramData,
-          field: field,
-          currentFormData: formData
-        })
-      });
-
-      if (response.ok) {
-        const data: { suggestion: string } = await response.json();
-        setAiSuggestions(prev => ({
-          ...prev,
-          [field]: data.suggestion
-        }));
-      } else {
-        alert('AI 추천 생성에 실패했습니다.');
-      }
-    } catch (error) {
-      console.error('AI 추천 생성 오류:', error);
-      alert('AI 추천 생성 중 오류가 발생했습니다.');
-    } finally {
-      setIsGenerating(false);
-    }
-  };
-
   // 전체 사업계획서 생성
-  const generateFullApplication = async (): Promise<void> => {
-    if (!selectedProgram) {
-      alert('먼저 지원사업을 선택해주세요.');
+  const generateFullApplication = async () => {
+    if (!selectedCompany || !selectedProgram) {
+      alert('기업과 지원사업을 모두 선택해주세요.');
       return;
     }
 
     setIsGenerating(true);
     try {
-      const selectedProgramData = programs.find((p: ProgramData) => p.id === selectedProgram);
+      const selectedProgramData = programs.find(p => p.id === selectedProgram);
       
-      const response = await fetch('/api/programs/generate-application', {
+      const response = await fetch('/api/universal/generate-application', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           programData: selectedProgramData,
-          companyInfo: {
-            companyName: formData.companyName,
-            ceoName: formData.ceoName,
-            businessNumber: formData.businessNumber,
-            address: formData.address
-          }
+          companyId: selectedCompany
         })
       });
 
       if (response.ok) {
-        const data: { applicationData: Partial<ApplicationFormData> } = await response.json();
+        const data = await response.json();
+        
         // 생성된 내용으로 폼 데이터 업데이트
         setFormData(prev => ({
           ...prev,
+          companyId: selectedCompany,
           ...data.applicationData
         }));
-        alert('🎉 AI가 사업계획서를 생성했습니다!');
+        
+        alert(`🎉 ${data.message}`);
       } else {
-        alert('사업계획서 생성에 실패했습니다.');
+        const errorData = await response.json();
+        alert(`사업계획서 생성에 실패했습니다: ${errorData.error}`);
       }
     } catch (error) {
       console.error('사업계획서 생성 오류:', error);
@@ -161,37 +131,16 @@ export default function WriterPage() {
     }
   };
 
-  // 폼 데이터 변경 핸들러
-  const handleInputChange = (field: keyof ApplicationFormData, value: string): void => {
-    setFormData(prev => ({
-      ...prev,
-      [field]: value
-    }));
-  };
-
-  // AI 추천 적용
-  const applySuggestion = (field: string): void => {
-    const suggestion = aiSuggestions[field];
-    if (suggestion) {
-      handleInputChange(field as keyof ApplicationFormData, suggestion);
-      setAiSuggestions(prev => {
-        const newSuggestions = { ...prev };
-        delete newSuggestions[field];
-        return newSuggestions;
-      });
-    }
-  };
-
-  // 선택 변경 핸들러
-  const handleSelectChange = (event: React.ChangeEvent<HTMLSelectElement>): void => {
-    setSelectedProgram(event.target.value);
-  };
-
-  // 텍스트 입력 핸들러
   const handleTextChange = (field: keyof ApplicationFormData) => 
-    (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>): void => {
-      handleInputChange(field, event.target.value);
+    (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      setFormData(prev => ({
+        ...prev,
+        [field]: event.target.value
+      }));
     };
+
+  const selectedCompanyInfo = companies.find(c => c.id === selectedCompany);
+  const selectedProgramInfo = programs.find(p => p.id === selectedProgram);
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#f9fafb', padding: '2rem 0' }}>
@@ -199,14 +148,14 @@ export default function WriterPage() {
         {/* 헤더 */}
         <div style={{ marginBottom: '2rem' }}>
           <h1 style={{ fontSize: '2.5rem', fontWeight: 'bold', color: '#111827', marginBottom: '0.5rem' }}>
-            🤖 AI 지원사업서 작성
+            🤖 범용 AI 지원사업서 작성 플랫폼
           </h1>
           <p style={{ color: '#6b7280' }}>
-            분석된 지원사업 정보를 바탕으로 AI가 맞춤형 사업계획서를 작성해드립니다.
+            모든 업종, 모든 규모의 기업이 사용할 수 있는 맞춤형 사업계획서 작성 서비스입니다.
           </p>
         </div>
 
-        {/* 프로그램 선택 */}
+        {/* 기업 등록 버튼 */}
         <div style={{ 
           backgroundColor: 'white', 
           borderRadius: '8px', 
@@ -214,171 +163,167 @@ export default function WriterPage() {
           padding: '1.5rem',
           marginBottom: '1.5rem'
         }}>
-          <h2 style={{ fontSize: '1.5rem', fontWeight: '600', marginBottom: '1rem', display: 'flex', alignItems: 'center' }}>
-            📄 지원사업 선택
-          </h2>
-          <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
-            <select
-              value={selectedProgram}
-              onChange={handleSelectChange}
-              style={{
-                flex: '1',
-                minWidth: '300px',
-                padding: '0.75rem',
-                border: '1px solid #d1d5db',
-                borderRadius: '6px',
-                fontSize: '1rem'
-              }}
-            >
-              <option value="">분석된 지원사업을 선택하세요</option>
-              {programs.map((program: ProgramData) => (
-                <option key={program.id} value={program.id}>
-                  {program.name}
-                </option>
-              ))}
-            </select>
-            <button 
-              onClick={generateFullApplication}
-              disabled={!selectedProgram || isGenerating}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <h2 style={{ fontSize: '1.25rem', fontWeight: '600', marginBottom: '0.5rem' }}>
+                🏢 기업 선택
+              </h2>
+              <p style={{ color: '#6b7280', fontSize: '0.875rem' }}>
+                등록된 기업: {companies.length}개
+              </p>
+            </div>
+            <a 
+              href="/company/register"
               style={{
                 padding: '0.75rem 1.5rem',
-                backgroundColor: selectedProgram && !isGenerating ? '#2563eb' : '#9ca3af',
+                backgroundColor: '#059669',
                 color: 'white',
                 border: 'none',
                 borderRadius: '6px',
-                cursor: selectedProgram && !isGenerating ? 'pointer' : 'not-allowed',
+                textDecoration: 'none',
                 fontWeight: '600',
                 fontSize: '1rem'
               }}
             >
-              {isGenerating ? '생성 중...' : '🚀 전체 사업계획서 생성'}
-            </button>
+              + 새 기업 등록
+            </a>
           </div>
-          
-          {selectedProgram && (
-            <div style={{ marginTop: '1rem', padding: '1rem', backgroundColor: '#f3f4f6', borderRadius: '6px' }}>
-              <span style={{ 
-                backgroundColor: '#e5e7eb', 
-                color: '#374151', 
-                padding: '0.25rem 0.75rem', 
-                borderRadius: '12px',
-                fontSize: '0.875rem',
-                fontWeight: '500'
-              }}>
-                선택된 사업
-              </span>
-              <p style={{ marginTop: '0.5rem', fontSize: '0.875rem', color: '#6b7280' }}>
-                {programs.find((p: ProgramData) => p.id === selectedProgram)?.name}
-              </p>
-            </div>
-          )}
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(500px, 1fr))', gap: '1.5rem' }}>
-          {/* 기업 정보 섹션 */}
-          <div style={{ 
-            backgroundColor: 'white', 
-            borderRadius: '8px', 
-            boxShadow: '0 1px 3px rgba(0,0,0,0.1)', 
-            padding: '1.5rem'
-          }}>
-            <h2 style={{ fontSize: '1.25rem', fontWeight: '600', marginBottom: '1rem' }}>
-              🏢 기업 정보
-            </h2>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              <div>
-                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '500' }}>
-                  기업명 *
-                </label>
-                <input
-                  type="text"
-                  value={formData.companyName}
-                  onChange={handleTextChange('companyName')}
-                  placeholder="한시스템 주식회사"
-                  style={{
-                    width: '100%',
-                    padding: '0.75rem',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '6px',
-                    fontSize: '1rem'
-                  }}
-                />
-              </div>
-              
-              <div>
-                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '500' }}>
-                  대표자명 *
-                </label>
-                <input
-                  type="text"
-                  value={formData.ceoName}
-                  onChange={handleTextChange('ceoName')}
-                  placeholder="유한종"
-                  style={{
-                    width: '100%',
-                    padding: '0.75rem',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '6px',
-                    fontSize: '1rem'
-                  }}
-                />
-              </div>
-              
-              <div>
-                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '500' }}>
-                  사업자등록번호 *
-                </label>
-                <input
-                  type="text"
-                  value={formData.businessNumber}
-                  onChange={handleTextChange('businessNumber')}
-                  placeholder="123-45-67890"
-                  style={{
-                    width: '100%',
-                    padding: '0.75rem',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '6px',
-                    fontSize: '1rem'
-                  }}
-                />
-              </div>
+        {/* 기업 및 프로그램 선택 */}
+        <div style={{ 
+          backgroundColor: 'white', 
+          borderRadius: '8px', 
+          boxShadow: '0 1px 3px rgba(0,0,0,0.1)', 
+          padding: '1.5rem',
+          marginBottom: '1.5rem'
+        }}>
+          <h2 style={{ fontSize: '1.5rem', fontWeight: '600', marginBottom: '1rem' }}>
+            🎯 사업계획서 작성 설정
+          </h2>
+          
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', marginBottom: '1.5rem' }}>
+            {/* 기업 선택 */}
+            <div>
+              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '500' }}>
+                기업 선택 *
+              </label>
+              <select
+                value={selectedCompany}
+                onChange={(e) => setSelectedCompany(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '0.75rem',
+                  border: '1px solid #d1d5db',
+                  borderRadius: '6px',
+                  fontSize: '1rem'
+                }}
+              >
+                <option value="">등록된 기업을 선택하세요</option>
+                {companies.map((company) => (
+                  <option key={company.id} value={company.id}>
+                    {company.companyName} ({company.industry})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* 지원사업 선택 */}
+            <div>
+              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '500' }}>
+                지원사업 선택 *
+              </label>
+              <select
+                value={selectedProgram}
+                onChange={(e) => setSelectedProgram(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '0.75rem',
+                  border: '1px solid #d1d5db',
+                  borderRadius: '6px',
+                  fontSize: '1rem'
+                }}
+              >
+                <option value="">분석된 지원사업을 선택하세요</option>
+                {programs.map((program) => (
+                  <option key={program.id} value={program.id}>
+                    {program.name}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 
-          {/* 사업 내용 섹션 */}
+          {/* 선택된 정보 표시 */}
+          {(selectedCompanyInfo || selectedProgramInfo) && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.5rem' }}>
+              {selectedCompanyInfo && (
+                <div style={{ padding: '1rem', backgroundColor: '#f3f4f6', borderRadius: '6px' }}>
+                  <h3 style={{ fontSize: '1rem', fontWeight: '600', marginBottom: '0.5rem', color: '#059669' }}>
+                    선택된 기업
+                  </h3>
+                  <p style={{ fontSize: '0.875rem', color: '#374151' }}>
+                    <strong>{selectedCompanyInfo.companyName}</strong><br/>
+                    {selectedCompanyInfo.industry} | {selectedCompanyInfo.businessType}<br/>
+                    설립: {selectedCompanyInfo.establishedYear}년 | 직원: {selectedCompanyInfo.employeeCount}
+                  </p>
+                </div>
+              )}
+              
+              {selectedProgramInfo && (
+                <div style={{ padding: '1rem', backgroundColor: '#eff6ff', borderRadius: '6px' }}>
+                  <h3 style={{ fontSize: '1rem', fontWeight: '600', marginBottom: '0.5rem', color: '#2563eb' }}>
+                    선택된 지원사업
+                  </h3>
+                  <p style={{ fontSize: '0.875rem', color: '#374151' }}>
+                    {selectedProgramInfo.name}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          <button 
+            onClick={generateFullApplication}
+            disabled={!selectedCompany || !selectedProgram || isGenerating}
+            style={{
+              width: '100%',
+              padding: '1rem 1.5rem',
+              backgroundColor: (selectedCompany && selectedProgram && !isGenerating) ? '#2563eb' : '#9ca3af',
+              color: 'white',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: (selectedCompany && selectedProgram && !isGenerating) ? 'pointer' : 'not-allowed',
+              fontWeight: '600',
+              fontSize: '1.1rem'
+            }}
+          >
+            {isGenerating ? '🔄 AI 맞춤 사업계획서 생성 중...' : '🚀 AI 맞춤 사업계획서 생성'}
+          </button>
+        </div>
+
+        {/* 생성된 사업계획서 표시 */}
+        {formData.projectTitle && (
           <div style={{ 
             backgroundColor: 'white', 
             borderRadius: '8px', 
             boxShadow: '0 1px 3px rgba(0,0,0,0.1)', 
-            padding: '1.5rem'
+            padding: '2rem',
+            marginBottom: '1.5rem'
           }}>
-            <h2 style={{ fontSize: '1.25rem', fontWeight: '600', marginBottom: '1rem' }}>
-              📋 사업 내용
+            <h2 style={{ fontSize: '1.5rem', fontWeight: '600', marginBottom: '1.5rem', color: '#059669' }}>
+              ✨ 생성된 사업계획서
             </h2>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
               <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                  <label style={{ fontWeight: '500' }}>사업명 *</label>
-                  <button
-                    onClick={() => generateAISuggestion('projectTitle')}
-                    disabled={isGenerating}
-                    style={{
-                      padding: '0.25rem 0.75rem',
-                      backgroundColor: '#f3f4f6',
-                      border: '1px solid #d1d5db',
-                      borderRadius: '4px',
-                      cursor: isGenerating ? 'not-allowed' : 'pointer',
-                      fontSize: '0.875rem'
-                    }}
-                  >
-                    💡 AI 추천
-                  </button>
-                </div>
+                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '500' }}>
+                  사업명
+                </label>
                 <input
                   type="text"
                   value={formData.projectTitle}
                   onChange={handleTextChange('projectTitle')}
-                  placeholder="AI가 추천하는 사업명을 확인하세요"
                   style={{
                     width: '100%',
                     padding: '0.75rem',
@@ -387,57 +332,34 @@ export default function WriterPage() {
                     fontSize: '1rem'
                   }}
                 />
-                {aiSuggestions.projectTitle && (
-                  <div style={{ 
-                    marginTop: '0.5rem', 
-                    padding: '0.75rem', 
-                    backgroundColor: '#eff6ff', 
-                    border: '1px solid #bfdbfe',
-                    borderRadius: '6px' 
-                  }}>
-                    <p style={{ fontSize: '0.875rem', color: '#1d4ed8', marginBottom: '0.5rem' }}>💡 AI 추천:</p>
-                    <p style={{ fontSize: '0.875rem', marginBottom: '0.5rem' }}>{aiSuggestions.projectTitle}</p>
-                    <button
-                      onClick={() => applySuggestion('projectTitle')}
-                      style={{
-                        padding: '0.25rem 0.75rem',
-                        backgroundColor: '#3b82f6',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '4px',
-                        cursor: 'pointer',
-                        fontSize: '0.875rem'
-                      }}
-                    >
-                      ✅ 적용
-                    </button>
-                  </div>
-                )}
               </div>
-              
+
               <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                  <label style={{ fontWeight: '500' }}>사업 개요 *</label>
-                  <button
-                    onClick={() => generateAISuggestion('projectSummary')}
-                    disabled={isGenerating}
-                    style={{
-                      padding: '0.25rem 0.75rem',
-                      backgroundColor: '#f3f4f6',
-                      border: '1px solid #d1d5db',
-                      borderRadius: '4px',
-                      cursor: isGenerating ? 'not-allowed' : 'pointer',
-                      fontSize: '0.875rem'
-                    }}
-                  >
-                    💡 AI 추천
-                  </button>
-                </div>
+                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '500' }}>
+                  지원금액
+                </label>
+                <input
+                  type="text"
+                  value={formData.supportAmount}
+                  onChange={handleTextChange('supportAmount')}
+                  style={{
+                    width: '100%',
+                    padding: '0.75rem',
+                    border: '1px solid #d1d5db',
+                    borderRadius: '6px',
+                    fontSize: '1rem'
+                  }}
+                />
+              </div>
+
+              <div style={{ gridColumn: 'span 2' }}>
+                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '500' }}>
+                  사업 개요
+                </label>
                 <textarea
                   value={formData.projectSummary}
                   onChange={handleTextChange('projectSummary')}
-                  rows={4}
-                  placeholder="사업의 핵심 내용을 간략히 설명하세요"
+                  rows={6}
                   style={{
                     width: '100%',
                     padding: '0.75rem',
@@ -447,68 +369,61 @@ export default function WriterPage() {
                     resize: 'vertical'
                   }}
                 />
-                {aiSuggestions.projectSummary && (
-                  <div style={{ 
-                    marginTop: '0.5rem', 
-                    padding: '0.75rem', 
-                    backgroundColor: '#eff6ff', 
-                    border: '1px solid #bfdbfe',
-                    borderRadius: '6px' 
-                  }}>
-                    <p style={{ fontSize: '0.875rem', color: '#1d4ed8', marginBottom: '0.5rem' }}>💡 AI 추천:</p>
-                    <p style={{ fontSize: '0.875rem', marginBottom: '0.5rem', whiteSpace: 'pre-wrap' }}>
-                      {aiSuggestions.projectSummary}
-                    </p>
-                    <button
-                      onClick={() => applySuggestion('projectSummary')}
-                      style={{
-                        padding: '0.25rem 0.75rem',
-                        backgroundColor: '#3b82f6',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '4px',
-                        cursor: 'pointer',
-                        fontSize: '0.875rem'
-                      }}
-                    >
-                      ✅ 적용
-                    </button>
-                  </div>
-                )}
+              </div>
+
+              <div style={{ gridColumn: 'span 2' }}>
+                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '500' }}>
+                  추진 배경
+                </label>
+                <textarea
+                  value={formData.projectBackground}
+                  onChange={handleTextChange('projectBackground')}
+                  rows={8}
+                  style={{
+                    width: '100%',
+                    padding: '0.75rem',
+                    border: '1px solid #d1d5db',
+                    borderRadius: '6px',
+                    fontSize: '1rem',
+                    resize: 'vertical'
+                  }}
+                />
               </div>
             </div>
           </div>
-        </div>
+        )}
 
         {/* 액션 버튼 */}
-        <div style={{ marginTop: '2rem', display: 'flex', justifyContent: 'flex-end', gap: '1rem' }}>
-          <button 
-            style={{
-              padding: '0.75rem 1.5rem',
-              backgroundColor: '#6b7280',
-              color: 'white',
-              border: 'none',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              fontSize: '1rem'
-            }}
-          >
-            💾 임시저장
-          </button>
-          <button 
-            style={{
-              padding: '0.75rem 1.5rem',
-              backgroundColor: '#059669',
-              color: 'white',
-              border: 'none',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              fontSize: '1rem'
-            }}
-          >
-            📥 사업계획서 다운로드
-          </button>
-        </div>
+        {formData.projectTitle && (
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem' }}>
+            <button 
+              style={{
+                padding: '0.75rem 1.5rem',
+                backgroundColor: '#6b7280',
+                color: 'white',
+                border: 'none',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                fontSize: '1rem'
+              }}
+            >
+              💾 사업계획서 저장
+            </button>
+            <button 
+              style={{
+                padding: '0.75rem 1.5rem',
+                backgroundColor: '#059669',
+                color: 'white',
+                border: 'none',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                fontSize: '1rem'
+              }}
+            >
+              📥 Word 문서 다운로드
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -1,0 +1,354 @@
+// app/api/hwp/analyze-fields/route.ts
+import { NextResponse } from 'next/server';
+
+interface AnalyzedField {
+  id: string;
+  label: string;
+  type: 'text' | 'number' | 'date' | 'table' | 'checkbox' | 'textarea';
+  required: boolean;
+  maxLength?: number;
+  placeholder?: string;
+  description?: string;
+  category: string;
+  priority: number;
+  validation?: string;
+}
+
+interface FieldAnalysisResult {
+  success: boolean;
+  fileName: string;
+  totalFields: number;
+  fields: AnalyzedField[];
+  sections: Array<{
+    id: string;
+    title: string;
+    fields: string[];
+  }>;
+  confidence: number;
+}
+
+export async function POST(request: Request) {
+  try {
+    const body = await request.json();
+    const { extractedText, fileName, method } = body;
+    
+    if (!extractedText) {
+      return NextResponse.json(
+        { error: '분석할 텍스트가 제공되지 않았습니다' },
+        { status: 400 }
+      );
+    }
+    
+    console.log('🔍 HWP 필드 분석 시작:', fileName);
+    console.log('추출 방법:', method);
+    console.log('텍스트 길이:', extractedText.length);
+    
+    // 1. 텍스트 전처리
+    const cleanedText = preprocessText(extractedText);
+    
+    // 2. 섹션 구분
+    const sections = identifySections(cleanedText);
+    
+    // 3. 필드 패턴 인식
+    const fields = identifyFields(cleanedText, sections);
+    
+    // 4. 필드 분류 및 우선순위 설정
+    const categorizedFields = categorizeFields(fields);
+    
+    // 5. 검증 규칙 추가
+    const validatedFields = addValidationRules(categorizedFields);
+    
+    const result: FieldAnalysisResult = {
+      success: true,
+      fileName: fileName || 'unknown.hwp',
+      totalFields: validatedFields.length,
+      fields: validatedFields,
+      sections: sections,
+      confidence: calculateConfidence(extractedText, validatedFields, method)
+    };
+    
+    console.log(`✅ 필드 분석 완료: ${validatedFields.length}개 필드, ${sections.length}개 섹션`);
+    
+    return NextResponse.json(result);
+    
+  } catch (error) {
+    console.error('필드 분석 오류:', error);
+    return NextResponse.json(
+      { 
+        success: false,
+        error: '필드 분석 중 오류가 발생했습니다',
+        details: error instanceof Error ? error.message : '알 수 없는 오류'
+      },
+      { status: 500 }
+    );
+  }
+}
+
+function preprocessText(text: string): string {
+  return text
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/\n+/g, '\n')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function identifySections(text: string) {
+  const lines = text.split('\n');
+  const sections = [];
+  
+  const sectionPatterns = [
+    { pattern: /^\d+\.\s*(.+)/, type: 'numbered' },
+    { pattern: /^[가-힣]\.\s*(.+)/, type: 'korean_letter' },
+    { pattern: /^\([가-힣]\)\s*(.+)/, type: 'parenthesis_korean' },
+    { pattern: /^■\s*(.+)/, type: 'bullet_square' },
+    { pattern: /^○\s*(.+)/, type: 'bullet_circle' },
+    { pattern: /^※\s*(.+)/, type: 'note' },
+    { pattern: /^제\d+[장절]\s*(.+)/, type: 'chapter' }
+  ];
+  
+  let currentSection = null;
+  let sectionId = 0;
+  
+  for (const line of lines) {
+    const trimmedLine = line.trim();
+    
+    if (trimmedLine.length < 3) continue;
+    
+    for (const { pattern, type } of sectionPatterns) {
+      const match = trimmedLine.match(pattern);
+      if (match) {
+        if (currentSection) {
+          sections.push(currentSection);
+        }
+        
+        currentSection = {
+          id: `section_${sectionId++}`,
+          title: match[1] || match[0],
+          type: type,
+          fields: []
+        };
+        break;
+      }
+    }
+  }
+  
+  if (currentSection) {
+    sections.push(currentSection);
+  }
+  
+  return sections;
+}
+
+function identifyFields(text: string, sections: any[]): AnalyzedField[] {
+  const fields: AnalyzedField[] = [];
+  let fieldId = 0;
+  
+  // 필드 패턴 정의
+  const fieldPatterns = [
+    // 기업 정보
+    { pattern: /(회사명|기업명|상호|법인명|업체명)/i, label: '회사명', type: 'text', category: 'company', priority: 10 },
+    { pattern: /(대표자|대표이사|성명)/i, label: '대표자명', type: 'text', category: 'company', priority: 9 },
+    { pattern: /(사업자.*번호|법인.*번호)/i, label: '사업자등록번호', type: 'text', category: 'company', priority: 8 },
+    { pattern: /(본사.*주소|소재지|주소|위치)/i, label: '회사주소', type: 'textarea', category: 'company', priority: 7 },
+    { pattern: /(연락처|전화번호|대표전화)/i, label: '연락처', type: 'text', category: 'company', priority: 6 },
+    { pattern: /(이메일|메일|e-mail)/i, label: '이메일', type: 'text', category: 'company', priority: 6 },
+    { pattern: /(설립일|설립년도|창립일)/i, label: '설립일', type: 'date', category: 'company', priority: 5 },
+    { pattern: /(직원수|종업원수|인력현황)/i, label: '직원수', type: 'number', category: 'company', priority: 5 },
+    
+    // 사업 정보
+    { pattern: /(사업명|과제명|프로젝트.*명|프로젝트.*제목)/i, label: '사업명', type: 'text', category: 'project', priority: 10 },
+    { pattern: /(사업.*목적|추진.*목적|목표)/i, label: '사업목적', type: 'textarea', category: 'project', priority: 9 },
+    { pattern: /(사업.*개요|프로젝트.*개요|과제.*개요)/i, label: '사업개요', type: 'textarea', category: 'project', priority: 9 },
+    { pattern: /(사업기간|수행기간|과제기간|프로젝트.*기간)/i, label: '사업기간', type: 'text', category: 'project', priority: 8 },
+    { pattern: /(시작.*날짜|개시일|착수일)/i, label: '시작일', type: 'date', category: 'project', priority: 7 },
+    { pattern: /(종료.*날짜|완료일|종료일)/i, label: '종료일', type: 'date', category: 'project', priority: 7 },
+    
+    // 예산 정보
+    { pattern: /(총.*예산|총.*사업비|전체.*예산)/i, label: '총예산', type: 'number', category: 'budget', priority: 9 },
+    { pattern: /(지원.*금액|신청.*금액|요청.*금액)/i, label: '지원요청금액', type: 'number', category: 'budget', priority: 10 },
+    { pattern: /(자부담|자기부담|자체부담)/i, label: '자부담금액', type: 'number', category: 'budget', priority: 8 },
+    { pattern: /(인건비)/i, label: '인건비', type: 'number', category: 'budget', priority: 6 },
+    { pattern: /(재료비|소요재료)/i, label: '재료비', type: 'number', category: 'budget', priority: 5 },
+    { pattern: /(장비비|설비비)/i, label: '장비비', type: 'number', category: 'budget', priority: 5 },
+    
+    // 기술 정보
+    { pattern: /(핵심.*기술|주요.*기술|기술.*내용)/i, label: '핵심기술', type: 'textarea', category: 'technology', priority: 9 },
+    { pattern: /(기술.*개발.*내용|개발.*기술)/i, label: '기술개발내용', type: 'textarea', category: 'technology', priority: 8 },
+    { pattern: /(특허.*현황|보유.*특허|지적재산권)/i, label: '특허현황', type: 'textarea', category: 'technology', priority: 7 },
+    { pattern: /(기술.*수준|기술.*경쟁력)/i, label: '기술수준', type: 'textarea', category: 'technology', priority: 6 },
+    
+    // 시장 정보  
+    { pattern: /(시장.*분석|시장.*현황)/i, label: '시장분석', type: 'textarea', category: 'market', priority: 8 },
+    { pattern: /(경쟁사.*분석|경쟁.*업체)/i, label: '경쟁사분석', type: 'textarea', category: 'market', priority: 7 },
+    { pattern: /(목표.*시장|타겟.*시장)/i, label: '목표시장', type: 'textarea', category: 'market', priority: 7 },
+    { pattern: /(시장.*규모|시장.*전망)/i, label: '시장규모', type: 'textarea', category: 'market', priority: 6 },
+    
+    // 인력 정보
+    { pattern: /(연구.*인력|참여.*인력|팀.*구성)/i, label: '연구인력구성', type: 'textarea', category: 'team', priority: 8 },
+    { pattern: /(연구.*책임자|과제.*책임자)/i, label: '연구책임자', type: 'text', category: 'team', priority: 9 },
+    { pattern: /(공동.*연구자|참여.*연구자)/i, label: '공동연구자', type: 'textarea', category: 'team', priority: 7 },
+    
+    // 계획 정보
+    { pattern: /(수행.*계획|추진.*계획|사업.*계획)/i, label: '수행계획', type: 'textarea', category: 'plan', priority: 9 },
+    { pattern: /(추진.*일정|수행.*일정|단계별.*계획)/i, label: '추진일정', type: 'textarea', category: 'plan', priority: 8 },
+    { pattern: /(기대.*효과|예상.*성과|목표.*성과)/i, label: '기대효과', type: 'textarea', category: 'plan', priority: 7 },
+    { pattern: /(활용.*방안|사업화.*계획)/i, label: '활용방안', type: 'textarea', category: 'plan', priority: 6 }
+  ];
+  
+  const lines = text.split('\n');
+  
+  for (const line of lines) {
+    for (const fieldPattern of fieldPatterns) {
+      if (fieldPattern.pattern.test(line)) {
+        // 중복 체크
+        const existingField = fields.find(f => f.label === fieldPattern.label);
+        if (existingField) continue;
+        
+        const field: AnalyzedField = {
+          id: `field_${fieldId++}`,
+          label: fieldPattern.label,
+          type: fieldPattern.type as any,
+          required: fieldPattern.priority >= 8,
+          category: fieldPattern.category,
+          priority: fieldPattern.priority,
+          description: generateFieldDescription(fieldPattern.label),
+          placeholder: generatePlaceholder(fieldPattern.label, fieldPattern.type as any)
+        };
+        
+        if (fieldPattern.type === 'text') {
+          field.maxLength = determineMaxLength(fieldPattern.label);
+        }
+        
+        fields.push(field);
+      }
+    }
+  }
+  
+  return fields;
+}
+
+function categorizeFields(fields: AnalyzedField[]): AnalyzedField[] {
+  return fields.sort((a, b) => {
+    // 카테고리 순서
+    const categoryOrder = ['company', 'project', 'budget', 'technology', 'market', 'team', 'plan'];
+    const aCategoryIndex = categoryOrder.indexOf(a.category);
+    const bCategoryIndex = categoryOrder.indexOf(b.category);
+    
+    if (aCategoryIndex !== bCategoryIndex) {
+      return aCategoryIndex - bCategoryIndex;
+    }
+    
+    // 같은 카테고리 내에서는 우선순위로 정렬
+    return b.priority - a.priority;
+  });
+}
+
+function addValidationRules(fields: AnalyzedField[]): AnalyzedField[] {
+  return fields.map(field => {
+    switch (field.label) {
+      case '사업자등록번호':
+        field.validation = 'business_number';
+        break;
+      case '이메일':
+        field.validation = 'email';
+        break;
+      case '연락처':
+        field.validation = 'phone';
+        break;
+      case '총예산':
+      case '지원요청금액':
+      case '자부담금액':
+        field.validation = 'currency';
+        break;
+      case '시작일':
+      case '종료일':
+      case '설립일':
+        field.validation = 'date';
+        break;
+    }
+    return field;
+  });
+}
+
+function generateFieldDescription(label: string): string {
+  const descriptions: Record<string, string> = {
+    '회사명': '정확한 법인명 또는 상호명을 입력해주세요',
+    '대표자명': '대표이사 또는 대표자의 성명을 입력해주세요',
+    '사업자등록번호': '000-00-00000 형식으로 입력해주세요',
+    '사업명': '신청하는 사업 또는 과제의 명칭을 입력해주세요',
+    '사업목적': '사업을 추진하는 목적과 필요성을 구체적으로 기술해주세요',
+    '총예산': '사업에 소요되는 전체 예산을 원 단위로 입력해주세요',
+    '핵심기술': '보유하고 있거나 개발할 핵심 기술을 상세히 기술해주세요'
+  };
+  
+  return descriptions[label] || `${label}에 대한 정보를 입력해주세요`;
+}
+
+function generatePlaceholder(label: string, type: string): string {
+  if (type === 'date') {
+    return 'YYYY-MM-DD';
+  }
+  
+  const placeholders: Record<string, string> = {
+    '회사명': '예) (주)테크놀로지',
+    '대표자명': '예) 홍길동',
+    '사업자등록번호': '123-45-67890',
+    '연락처': '02-1234-5678',
+    '이메일': 'example@company.com',
+    '총예산': '100,000,000',
+    '직원수': '15'
+  };
+  
+  return placeholders[label] || '';
+}
+
+function determineMaxLength(label: string): number {
+  const maxLengths: Record<string, number> = {
+    '회사명': 100,
+    '대표자명': 50,
+    '사업자등록번호': 12,
+    '연락처': 20,
+    '이메일': 100,
+    '사업명': 200,
+    '회사주소': 300
+  };
+  
+  return maxLengths[label] || 500;
+}
+
+function calculateConfidence(extractedText: string, fields: AnalyzedField[], method: string): number {
+  let confidence = 0.5; // 기본 신뢰도
+  
+  // 추출 방법에 따른 가중치
+  switch (method) {
+    case 'python-hwp5tools':
+      confidence = 0.9;
+      break;
+    case 'libreoffice-headless':
+      confidence = 0.8;
+      break;
+    case 'cloudconvert':
+      confidence = 0.85;
+      break;
+    case 'convertio':
+      confidence = 0.75;
+      break;
+    default:
+      confidence = 0.5;
+  }
+  
+  // 텍스트 품질에 따른 조정
+  const koreanChars = (extractedText.match(/[가-힣]/g) || []).length;
+  const totalChars = extractedText.length;
+  const koreanRatio = totalChars > 0 ? koreanChars / totalChars : 0;
+  
+  if (koreanRatio > 0.3) confidence += 0.1;
+  if (koreanRatio > 0.5) confidence += 0.1;
+  
+  // 필드 수에 따른 조정
+  if (fields.length > 10) confidence += 0.05;
+  if (fields.length > 20) confidence += 0.05;
+  
+  return Math.min(confidence, 1.0);
+}

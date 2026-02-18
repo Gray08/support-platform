@@ -17,10 +17,11 @@ export async function POST(request: NextRequest) {
     if (!response.ok) {
       const error = await response.text();
       console.error('Anthropic API error:', error);
-      return NextResponse.json(
-        { error: 'AI API 호출 실패' },
-        { status: response.status }
-      );
+      // 개발 중에는 오류 상세를 클라이언트에 전달해 원인 파악을 쉽게 합니다.
+      // (프로덕션에서는 민감정보 노출 주의)
+      const payload: any = { error: 'AI API 호출 실패' };
+      if (process.env.NODE_ENV !== 'production') payload.details = error;
+      return NextResponse.json(payload, { status: response.status });
     }
 
     const data = await response.json();
